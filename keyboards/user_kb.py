@@ -191,3 +191,12 @@ def report_nav_kb() -> InlineKeyboardMarkup:
             ]
         ]
     )
+
+
+def supervisor_menu() -> ReplyKeyboardMarkup:
+    """Nazoratchi (supervisor) uchun klaviatura — barcha filiallar."""
+    b = ReplyKeyboardBuilder()
+    b.row(KeyboardButton(text="📊 Barcha filiallar — bugun"))
+    b.row(KeyboardButton(text="📥 Barcha filiallar — Excel"))
+    b.row(KeyboardButton(text="ℹ️ Yordam"))
+    return b.as_markup(resize_keyboard=True)

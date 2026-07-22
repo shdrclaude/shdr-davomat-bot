@@ -385,3 +385,21 @@ async def log_action(
 ) -> None:
     session.add(ActionLog(employee_id=emp_id, action=action, payload=payload))
     await session.commit()
+
+
+# ==================== SUPERVISORS (nazoratchilar) ====================
+async def upsert_supervisor(session: AsyncSession, telegram_id: int, username: str | None):
+    from database.models import Supervisor
+    res = await session.execute(select(Supervisor).where(Supervisor.telegram_id == telegram_id))
+    sup = res.scalar_one_or_none()
+    if sup:
+        sup.username = username
+    else:
+        session.add(Supervisor(telegram_id=telegram_id, username=username))
+    await session.commit()
+
+
+async def list_supervisors(session: AsyncSession):
+    from database.models import Supervisor
+    res = await session.execute(select(Supervisor))
+    return list(res.scalars().all())

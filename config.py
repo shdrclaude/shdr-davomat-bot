@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     database_url: str
     redis_url: str = "redis://localhost:6379/0"
     super_admins: str = ""
+    supervisor_usernames: str = ""
     log_chat_id: int | None = None
     tz_name: str = "Asia/Tashkent"
 
@@ -40,6 +41,10 @@ class Settings(BaseSettings):
     @property
     def super_admin_ids(self) -> list[int]:
         return [int(x) for x in self.super_admins.replace(" ", "").split(",") if x]
+
+    @property
+    def supervisor_username_set(self) -> set[str]:
+        return {u.strip().lstrip("@").lower() for u in self.supervisor_usernames.split(",") if u.strip()}
 
 
 settings = Settings()  # type: ignore[call-arg]
