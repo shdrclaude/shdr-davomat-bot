@@ -403,3 +403,13 @@ async def list_supervisors(session: AsyncSession):
     from database.models import Supervisor
     res = await session.execute(select(Supervisor))
     return list(res.scalars().all())
+
+
+async def list_all_employees(session: AsyncSession, only_active: bool = False) -> list[Employee]:
+    """Barcha filiallar xodimlari (super-admin ko'rinishi uchun)."""
+    q = select(Employee).options(selectinload(Employee.branch))
+    if only_active:
+        q = q.where(Employee.status == EmployeeStatus.faol)
+    q = q.order_by(Employee.branch_id, Employee.full_name)
+    res = await session.execute(q)
+    return list(res.scalars().all())

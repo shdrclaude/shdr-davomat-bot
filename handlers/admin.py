@@ -27,6 +27,7 @@ from database.queries import (
     approve_employee,
     get_employee_by_id,
     get_request,
+    list_all_employees,
     list_branch_employees,
     list_pending_requests,
     log_action,
@@ -52,6 +53,13 @@ def _is_admin(emp: Employee | None) -> bool:
 
 def _is_admin_or_super(from_user_id: int, emp: Employee | None) -> bool:
     return _is_admin(emp) or from_user_id in settings.super_admin_ids
+
+
+async def _employees_for(session, employee):
+    """Super-admin barcha filiallar xodimlarini ko'radi; admin — faqat o'z filialini."""
+    if employee and employee.telegram_id in settings.super_admin_ids:
+        return await list_all_employees(session, only_active=False), True
+    return await list_branch_employees(session, employee.branch_id, only_active=False), False
 
 
 # ==================== XODIM TASDIQLASH ====================
@@ -254,13 +262,14 @@ async def _do_late(msg: Message, session: AsyncSession, employee: Employee):
 
 
 async def _do_employees(msg: Message, session: AsyncSession, employee: Employee):
-    emps = await list_branch_employees(session, employee.branch_id, only_active=False)
+    emps, show_branch = await _employees_for(session, employee)
     if not emps:
         await msg.answer("👥 Xodimlar yo'q.")
         return
+    title = "👥 Xodimlar (barcha filiallar)" if show_branch else "👥 Xodimlar"
     await msg.answer(
-        f"👥 Xodimlar ({len(emps)}):\nTahrirlash uchun xodimni tanlang:",
-        reply_markup=admin_kb.employees_list_kb(emps),
+        f"{title} ({len(emps)}):\nTahrirlash uchun xodimni tanlang:",
+        reply_markup=admin_kb.employees_list_kb(emps, show_branch=show_branch),
     )
 
 
@@ -517,15 +526,16 @@ async def emp_back_list(call: CallbackQuery, session: AsyncSession, employee: Em
     if not _is_admin_or_super(call.from_user.id, employee):
         await call.answer("Ruxsat yo'q", show_alert=True)
         return
-    emps = await list_branch_employees(session, employee.branch_id, only_active=False)
+    emps, show_branch = await _employees_for(session, employee)
+    title = "👥 Xodimlar (barcha filiallar)" if show_branch else "👥 Xodimlar"
     try:
         await call.message.edit_text(
-            f"👥 Xodimlar ({len(emps)}):\nTahrirlash uchun xodimni tanlang:",
-            reply_markup=admin_kb.employees_list_kb(emps),
+            f"{title} ({len(emps)}):\nTahrirlash uchun xodimni tanlang:",
+            reply_markup=admin_kb.employees_list_kb(emps, show_branch=show_branch),
         )
     except Exception:
         await call.message.answer(
-            f"👥 Xodimlar ({len(emps)}):",
-            reply_markup=admin_kb.employees_list_kb(emps),
+            f"{title} ({len(emps)}):",
+            reply_markup=admin_kb.employees_list_kb(emps, show_branch=show_branch),
         )
     await call.answer()

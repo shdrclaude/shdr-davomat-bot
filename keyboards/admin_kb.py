@@ -66,14 +66,17 @@ def comment_decision_kb(req_id: int) -> InlineKeyboardMarkup:
     )
 
 
-def employees_list_kb(employees) -> InlineKeyboardMarkup:
+def employees_list_kb(employees, show_branch: bool = False) -> InlineKeyboardMarkup:
     """Xodimlar ro'yxati — har biri tahrirlash uchun tugma."""
     from aiogram.utils.keyboard import InlineKeyboardBuilder
     b = InlineKeyboardBuilder()
     for e in employees:
         icon = {"admin": "👑", "menejer": "🧑‍💼", "xodim": "👷"}.get(e.role.value, "·")
         st = {"faol": "", "kutilmoqda": " ⏳", "faolsiz": " 🚫"}.get(e.status.value, "")
-        b.button(text=f"{icon} {e.full_name}{st}", callback_data=f"empmng:{e.id}")
+        label = f"{icon} {e.full_name}{st}"
+        if show_branch and getattr(e, "branch", None):
+            label = f"{icon} {e.full_name} · {e.branch.name}{st}"
+        b.button(text=label, callback_data=f"empmng:{e.id}")
     b.adjust(1)
     return b.as_markup()
 
