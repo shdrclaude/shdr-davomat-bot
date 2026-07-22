@@ -1,4 +1,4 @@
-"""Xabar yuborish yordamchilari (xodim/admin/nazoratchi/guruhga)."""
+"""Xabar yuborish yordamchilari (xodim/admin/super-admin/nazoratchi/guruhga)."""
 from __future__ import annotations
 
 import logging
@@ -8,6 +8,7 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.types import InlineKeyboardMarkup
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config import settings
 from database.models import Branch, Employee
 from database.queries import get_branch, list_admins_for_branch, list_supervisors
 
@@ -48,7 +49,12 @@ async def notify_branch_admins(
     text: str,
     reply_markup: InlineKeyboardMarkup | None = None,
 ) -> None:
-    """Filial admin guruhiga, admin/menejerlarga VA barcha nazoratchilarga yuboradi."""
+    """Xabarni quyidagilarga yuboradi:
+    - filial admin guruhiga
+    - filial admin/menejerlariga
+    - super-adminlarga (founder) — filialidan qat'i nazar, tugmalari bilan
+    - barcha nazoratchilarga (faqat matn)
+    """
     sent_to: set[int] = set()
 
     branch: Branch | None = await get_branch(session, branch_id)
@@ -63,7 +69,14 @@ async def notify_branch_admins(
         await safe_send(bot, adm.telegram_id, text, reply_markup)
         sent_to.add(adm.telegram_id)
 
-    # Nazoratchilar barcha filiallarning bildirishnomalarini oladi (tugmasiz, faqat matn)
+    # Super-adminlar (founder) — barcha filiallarning bildirishnomalarini tugma bilan oladi
+    for sa_id in settings.super_admin_ids:
+        if sa_id in sent_to:
+            continue
+        await safe_send(bot, sa_id, text, reply_markup)
+        sent_to.add(sa_id)
+
+    # Nazoratchilar — barcha filiallar, faqat matn
     for sup in await list_supervisors(session):
         if sup.telegram_id in sent_to:
             continue

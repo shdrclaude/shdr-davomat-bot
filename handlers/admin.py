@@ -12,6 +12,7 @@ from aiogram.types import BufferedInputFile, CallbackQuery, Message
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config import settings
 from database.models import (
     Attendance,
     Break,
@@ -49,10 +50,14 @@ def _is_admin(emp: Employee | None) -> bool:
     return emp is not None and emp.role in (Role.admin, Role.menejer) and emp.status == EmployeeStatus.faol
 
 
+def _is_admin_or_super(from_user_id: int, emp: Employee | None) -> bool:
+    return _is_admin(emp) or from_user_id in settings.super_admin_ids
+
+
 # ==================== XODIM TASDIQLASH ====================
 @router.callback_query(F.data.startswith("emp_ok:"))
 async def emp_approve(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
-    if not _is_admin(employee):
+    if not _is_admin_or_super(call.from_user.id, employee):
         await call.answer("Ruxsat yo'q", show_alert=True)
         return
     emp_id = int(call.data.split(":")[1])
@@ -68,7 +73,7 @@ async def emp_approve(call: CallbackQuery, session: AsyncSession, employee: Empl
 
 @router.callback_query(F.data.startswith("emp_no:"))
 async def emp_reject(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
-    if not _is_admin(employee):
+    if not _is_admin_or_super(call.from_user.id, employee):
         await call.answer("Ruxsat yo'q", show_alert=True)
         return
     emp_id = int(call.data.split(":")[1])
@@ -110,7 +115,7 @@ async def _resolve_and_notify(call, session, employee, req_id, approve: bool, co
 
 @router.callback_query(F.data.startswith("req_ok:"))
 async def req_ok(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
-    if not _is_admin(employee):
+    if not _is_admin_or_super(call.from_user.id, employee):
         await call.answer("Ruxsat yo'q", show_alert=True)
         return
     await _resolve_and_notify(call, session, employee, int(call.data.split(":")[1]), True, None)
@@ -119,7 +124,7 @@ async def req_ok(call: CallbackQuery, session: AsyncSession, employee: Employee 
 
 @router.callback_query(F.data.startswith("req_no:"))
 async def req_no(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
-    if not _is_admin(employee):
+    if not _is_admin_or_super(call.from_user.id, employee):
         await call.answer("Ruxsat yo'q", show_alert=True)
         return
     await _resolve_and_notify(call, session, employee, int(call.data.split(":")[1]), False, None)
@@ -128,7 +133,7 @@ async def req_no(call: CallbackQuery, session: AsyncSession, employee: Employee 
 
 @router.callback_query(F.data.startswith("req_cm:"))
 async def req_comment(call: CallbackQuery, state: FSMContext, employee: Employee | None):
-    if not _is_admin(employee):
+    if not _is_admin_or_super(call.from_user.id, employee):
         await call.answer("Ruxsat yo'q", show_alert=True)
         return
     req_id = int(call.data.split(":")[1])
@@ -161,7 +166,7 @@ async def req_comment_text(message: Message, state: FSMContext, session: AsyncSe
 
 @router.callback_query(F.data.startswith("reqc_ok:"))
 async def reqc_ok(call: CallbackQuery, state: FSMContext, session: AsyncSession, employee: Employee | None):
-    if not _is_admin(employee):
+    if not _is_admin_or_super(call.from_user.id, employee):
         await call.answer("Ruxsat yo'q", show_alert=True)
         return
     data = await state.get_data()
@@ -173,7 +178,7 @@ async def reqc_ok(call: CallbackQuery, state: FSMContext, session: AsyncSession,
 
 @router.callback_query(F.data.startswith("reqc_no:"))
 async def reqc_no(call: CallbackQuery, state: FSMContext, session: AsyncSession, employee: Employee | None):
-    if not _is_admin(employee):
+    if not _is_admin_or_super(call.from_user.id, employee):
         await call.answer("Ruxsat yo'q", show_alert=True)
         return
     data = await state.get_data()
@@ -359,7 +364,7 @@ async def admin_panel(message: Message, session: AsyncSession, employee: Employe
 
 @router.callback_query(F.data == "adm:today")
 async def adm_today(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
-    if not _is_admin(employee):
+    if not _is_admin_or_super(call.from_user.id, employee):
         await call.answer("Ruxsat yo'q", show_alert=True)
         return
     await _do_today(call.message, session, employee)
@@ -368,7 +373,7 @@ async def adm_today(call: CallbackQuery, session: AsyncSession, employee: Employ
 
 @router.callback_query(F.data == "adm:pending")
 async def adm_pending(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
-    if not _is_admin(employee):
+    if not _is_admin_or_super(call.from_user.id, employee):
         await call.answer("Ruxsat yo'q", show_alert=True)
         return
     await _do_pending(call.message, session, employee)
@@ -377,7 +382,7 @@ async def adm_pending(call: CallbackQuery, session: AsyncSession, employee: Empl
 
 @router.callback_query(F.data == "adm:outside")
 async def adm_outside(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
-    if not _is_admin(employee):
+    if not _is_admin_or_super(call.from_user.id, employee):
         await call.answer("Ruxsat yo'q", show_alert=True)
         return
     await _do_outside(call.message, session, employee)
@@ -386,7 +391,7 @@ async def adm_outside(call: CallbackQuery, session: AsyncSession, employee: Empl
 
 @router.callback_query(F.data == "adm:late")
 async def adm_late(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
-    if not _is_admin(employee):
+    if not _is_admin_or_super(call.from_user.id, employee):
         await call.answer("Ruxsat yo'q", show_alert=True)
         return
     await _do_late(call.message, session, employee)
@@ -395,7 +400,7 @@ async def adm_late(call: CallbackQuery, session: AsyncSession, employee: Employe
 
 @router.callback_query(F.data == "adm:employees")
 async def adm_employees(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
-    if not _is_admin(employee):
+    if not _is_admin_or_super(call.from_user.id, employee):
         await call.answer("Ruxsat yo'q", show_alert=True)
         return
     await _do_employees(call.message, session, employee)
@@ -404,7 +409,7 @@ async def adm_employees(call: CallbackQuery, session: AsyncSession, employee: Em
 
 @router.callback_query(F.data == "adm:excel")
 async def adm_excel(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
-    if not _is_admin(employee):
+    if not _is_admin_or_super(call.from_user.id, employee):
         await call.answer("Ruxsat yo'q", show_alert=True)
         return
     await call.answer("Excel tayyorlanmoqda...")
@@ -413,7 +418,7 @@ async def adm_excel(call: CallbackQuery, session: AsyncSession, employee: Employ
 
 @router.callback_query(F.data == "adm:videos")
 async def adm_videos(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
-    if not _is_admin(employee):
+    if not _is_admin_or_super(call.from_user.id, employee):
         await call.answer("Ruxsat yo'q", show_alert=True)
         return
     await call.answer("Videolar yuklanmoqda...")
@@ -422,7 +427,7 @@ async def adm_videos(call: CallbackQuery, session: AsyncSession, employee: Emplo
 
 @router.callback_query(F.data.in_({"adm:rating", "adm:bydate", "adm:settings"}))
 async def adm_stub(call: CallbackQuery, employee: Employee | None):
-    if not _is_admin(employee):
+    if not _is_admin_or_super(call.from_user.id, employee):
         await call.answer("Ruxsat yo'q", show_alert=True)
         return
     await call.answer("Bu bo'lim keyingi versiyada.", show_alert=True)
@@ -460,7 +465,7 @@ async def _show_emp_card(call: CallbackQuery, session: AsyncSession, emp_id: int
 
 @router.callback_query(F.data.startswith("empmng:"))
 async def emp_manage(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
-    if not _is_admin(employee):
+    if not _is_admin_or_super(call.from_user.id, employee):
         await call.answer("Ruxsat yo'q", show_alert=True)
         return
     await _show_emp_card(call, session, int(call.data.split(":")[1]))
@@ -469,7 +474,7 @@ async def emp_manage(call: CallbackQuery, session: AsyncSession, employee: Emplo
 
 @router.callback_query(F.data.startswith("emprole:"))
 async def emp_set_role(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
-    if not _is_admin(employee):
+    if not _is_admin_or_super(call.from_user.id, employee):
         await call.answer("Ruxsat yo'q", show_alert=True)
         return
     _, sid, role = call.data.split(":")
@@ -488,7 +493,7 @@ async def emp_set_role(call: CallbackQuery, session: AsyncSession, employee: Emp
 
 @router.callback_query(F.data.startswith("empstat:"))
 async def emp_set_status(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
-    if not _is_admin(employee):
+    if not _is_admin_or_super(call.from_user.id, employee):
         await call.answer("Ruxsat yo'q", show_alert=True)
         return
     _, sid, stat = call.data.split(":")
@@ -509,7 +514,7 @@ async def emp_set_status(call: CallbackQuery, session: AsyncSession, employee: E
 
 @router.callback_query(F.data == "empmng_list")
 async def emp_back_list(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
-    if not _is_admin(employee):
+    if not _is_admin_or_super(call.from_user.id, employee):
         await call.answer("Ruxsat yo'q", show_alert=True)
         return
     emps = await list_branch_employees(session, employee.branch_id, only_active=False)
