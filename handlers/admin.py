@@ -265,6 +265,37 @@ async def _do_excel(msg: Message, session: AsyncSession, employee: Employee):
     await msg.answer_document(BufferedInputFile(data, filename=fname))
 
 
+async def _do_videos(msg: Message, session: AsyncSession, employee: Employee):
+    """Bugungi kelish/ketish video-doiralarini (кружок) ko'rsatadi."""
+    day = today_local()
+    res = await session.execute(
+        select(Attendance, Employee)
+        .join(Employee, Attendance.employee_id == Employee.id)
+        .where(and_(Attendance.date == day, Employee.branch_id == employee.branch_id))
+        .order_by(Employee.full_name)
+    )
+    rows = res.all()
+    sent = 0
+    await msg.answer(f"🎥 Bugungi videolar — {employee.branch.name if employee.branch else '—'}")
+    for att, emp in rows:
+        if att.check_in_video_id:
+            await msg.answer(f"✅ {emp.full_name} — Keldi {fmt_time(att.check_in)}")
+            try:
+                await msg.answer_video_note(att.check_in_video_id)
+                sent += 1
+            except Exception:
+                await msg.answer("⚠️ Video yuklanmadi.")
+        if att.check_out_video_id:
+            await msg.answer(f"🚪 {emp.full_name} — Ketdi {fmt_time(att.check_out)}")
+            try:
+                await msg.answer_video_note(att.check_out_video_id)
+                sent += 1
+            except Exception:
+                await msg.answer("⚠️ Video yuklanmadi.")
+    if sent == 0:
+        await msg.answer("ℹ️ Bugun hali video yo'q.")
+
+
 # ==================== REPLY-TUGMA HANDLERLARI (asosiy klaviatura) ====================
 @router.message(F.text == "📊 Bugungi hisobot")
 async def btn_today(message: Message, session: AsyncSession, employee: Employee | None):
@@ -308,8 +339,88 @@ async def btn_excel(message: Message, session: AsyncSession, employee: Employee 
     await _do_excel(message, session, employee)
 
 
+@router.message(F.text == "🎥 Bugungi videolar")
+async def btn_videos(message: Message, session: AsyncSession, employee: Employee | None):
+    if not _is_admin(employee):
+        return
+    await _do_videos(message, session, employee)
+
+
 # ==================== ESKI "ADMIN PANEL" (inline) — orqaga moslik ====================
 @router.message(F.text == "🛠 Admin panel")
 async def admin_panel(message: Message, session: AsyncSession, employee: Employee | None):
     if not _is_admin(employee):
         return
+    pending = await list_pending_requests(session, employee.branch_id)
+    await message.answer("🛠 Admin panel", reply_markup=admin_kb.admin_menu(len(pending)))
+
+
+@router.callback_query(F.data == "adm:today")
+async def adm_today(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
+    if not _is_admin(employee):
+        await call.answer("Ruxsat yo'q", show_alert=True)
+        return
+    await _do_today(call.message, session, employee)
+    await call.answer()
+
+
+@router.callback_query(F.data == "adm:pending")
+async def adm_pending(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
+    if not _is_admin(employee):
+        await call.answer("Ruxsat yo'q", show_alert=True)
+        return
+    await _do_pending(call.message, session, employee)
+    await call.answer()
+
+
+@router.callback_query(F.data == "adm:outside")
+async def adm_outside(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
+    if not _is_admin(employee):
+        await call.answer("Ruxsat yo'q", show_alert=True)
+        return
+    await _do_outside(call.message, session, employee)
+    await call.answer()
+
+
+@router.callback_query(F.data == "adm:late")
+async def adm_late(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
+    if not _is_admin(employee):
+        await call.answer("Ruxsat yo'q", show_alert=True)
+        return
+    await _do_late(call.message, session, employee)
+    await call.answer()
+
+
+@router.callback_query(F.data == "adm:employees")
+async def adm_employees(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
+    if not _is_admin(employee):
+        await call.answer("Ruxsat yo'q", show_alert=True)
+        return
+    await _do_employees(call.message, session, employee)
+    await call.answer()
+
+
+@router.callback_query(F.data == "adm:excel")
+async def adm_excel(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
+    if not _is_admin(employee):
+        await call.answer("Ruxsat yo'q", show_alert=True)
+        return
+    await call.answer("Excel tayyorlanmoqda...")
+    await _do_excel(call.message, session, employee)
+
+
+@router.callback_query(F.data == "adm:videos")
+async def adm_videos(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
+    if not _is_admin(employee):
+        await call.answer("Ruxsat yo'q", show_alert=True)
+        return
+    await call.answer("Videolar yuklanmoqda...")
+    await _do_videos(call.message, session, employee)
+
+
+@router.callback_query(F.data.in_({"adm:rating", "adm:bydate", "adm:settings"}))
+async def adm_stub(call: CallbackQuery, employee: Employee | None):
+    if not _is_admin(employee):
+        await call.answer("Ruxsat yo'q", show_alert=True)
+        return
+    await call.answer("Bu bo'lim keyingi versiyada.", show_alert=True)
