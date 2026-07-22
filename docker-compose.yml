@@ -1,0 +1,41 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: shdr
+      POSTGRES_PASSWORD: shdr
+      POSTGRES_DB: shdr
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shdr"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  bot:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN}
+      DATABASE_URL: postgresql+asyncpg://shdr:shdr@postgres:5432/shdr
+      REDIS_URL: redis://redis:6379/0
+      SUPER_ADMINS: ${SUPER_ADMINS}
+      LOG_CHAT_ID: ${LOG_CHAT_ID:-}
+      TZ_NAME: Asia/Tashkent
+    restart: unless-stopped
+
+volumes:
+  pgdata:
