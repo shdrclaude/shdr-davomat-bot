@@ -28,7 +28,8 @@ def admin_menu_reply():
     b.row(KeyboardButton(text="⏳ Kutilayotgan so'rovlar"), KeyboardButton(text="⚠️ Hozir tashqarida"))
     b.row(KeyboardButton(text="⏰ Bugun kech qolganlar"), KeyboardButton(text="👥 Xodimlar"))
     b.row(KeyboardButton(text="🎥 Bugungi videolar"), KeyboardButton(text="📥 Excel"))
-    b.row(KeyboardButton(text="📊 Hisobotim"), KeyboardButton(text="ℹ️ Yordam"))
+    b.row(KeyboardButton(text="🏢 Filiallar"), KeyboardButton(text="📊 Hisobotim"))
+    b.row(KeyboardButton(text="ℹ️ Yordam"))
     return b.as_markup(resize_keyboard=True)
 
 
@@ -99,3 +100,22 @@ def employee_card_kb(emp) -> InlineKeyboardMarkup:
         rows.append([InlineKeyboardButton(text="✅ Faollashtirish", callback_data=f"empstat:{emp.id}:faol")])
     rows.append([InlineKeyboardButton(text="◀️ Ro'yxatga qaytish", callback_data="empmng_list")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def branches_kb_manage(branches) -> InlineKeyboardMarkup:
+    """Filiallar ro'yxati — tahrirlash uchun."""
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    b = InlineKeyboardBuilder()
+    for br in branches:
+        b.button(text=f"🏢 {br.name}", callback_data=f"brmng:{br.id}")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def branch_card_kb(branch) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✏️ Nomini o'zgartirish", callback_data=f"brname:{branch.id}")],
+            [InlineKeyboardButton(text="◀️ Ro'yxatga qaytish", callback_data="brmng_list")],
+        ]
+    )

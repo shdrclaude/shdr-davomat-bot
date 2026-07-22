@@ -51,3 +51,7 @@ class Vacation(StatesGroup):
 
 class AdminReview(StatesGroup):
     comment = State()
+
+
+class BranchEdit(StatesGroup):
+    name = State()

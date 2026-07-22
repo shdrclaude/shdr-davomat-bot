@@ -26,15 +26,17 @@ from database.models import (
 from database.queries import (
     approve_employee,
     get_employee_by_id,
+    get_branch,
     get_request,
     list_all_employees,
+    list_branches,
     list_branch_employees,
     list_pending_requests,
     log_action,
     reject_employee,
     resolve_request,
 )
-from handlers.states import AdminReview
+from handlers.states import AdminReview, BranchEdit
 from keyboards import admin_kb
 from locales import uz
 from services import excel_export
@@ -198,6 +200,14 @@ async def reqc_no(call: CallbackQuery, state: FSMContext, session: AsyncSession,
 
 # ==================== ADMIN AMALLARI (umumiy logika) ====================
 async def _do_today(msg: Message, session: AsyncSession, employee: Employee):
+    if employee and employee.telegram_id in settings.super_admin_ids:
+        branches = await list_branches(session)
+        if not branches:
+            await msg.answer("ℹ️ Hozircha filiallar yo'q.")
+            return
+        for br in branches:
+            await msg.answer(await today_branch_report(session, br, today_local()))
+        return
     branch = employee.branch
     if branch:
         text = await today_branch_report(session, branch, today_local())
@@ -537,5 +547,104 @@ async def emp_back_list(call: CallbackQuery, session: AsyncSession, employee: Em
         await call.message.answer(
             f"{title} ({len(emps)}):",
             reply_markup=admin_kb.employees_list_kb(emps, show_branch=show_branch),
+        )
+    await call.answer()
+
+
+# ==================== FILIALLARNI BOSHQARISH ====================
+async def _branches_for(session, employee):
+    """Super-admin barcha filiallarni; admin — faqat o'zinikini."""
+    if employee and employee.telegram_id in settings.super_admin_ids:
+        return await list_branches(session)
+    if employee and employee.branch:
+        return [employee.branch]
+    return []
+
+
+def _branch_card_text(br) -> str:
+    return (
+        f"🏢 {br.name}\n"
+        f"🕐 Ish vaqti: {fmt_time(br.work_start)} — {fmt_time(br.work_end)}\n\n"
+        f"Nomini o'zgartirish uchun tugmani bosing:"
+    )
+
+
+@router.message(F.text == "🏢 Filiallar")
+async def btn_branches(message: Message, session: AsyncSession, employee: Employee | None):
+    if not _is_admin(employee):
+        return
+    branches = await _branches_for(session, employee)
+    if not branches:
+        await message.answer("ℹ️ Filiallar yo'q.")
+        return
+    await message.answer(
+        "🏢 Filiallar — tahrirlash uchun tanlang:",
+        reply_markup=admin_kb.branches_kb_manage(branches),
+    )
+
+
+@router.callback_query(F.data.startswith("brmng:"))
+async def branch_manage(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
+    if not _is_admin_or_super(call.from_user.id, employee):
+        await call.answer("Ruxsat yo'q", show_alert=True)
+        return
+    br = await get_branch(session, int(call.data.split(":")[1]))
+    if not br:
+        await call.answer("Topilmadi", show_alert=True)
+        return
+    try:
+        await call.message.edit_text(_branch_card_text(br), reply_markup=admin_kb.branch_card_kb(br))
+    except Exception:
+        await call.message.answer(_branch_card_text(br), reply_markup=admin_kb.branch_card_kb(br))
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("brname:"))
+async def branch_rename_start(call: CallbackQuery, state: FSMContext, employee: Employee | None):
+    if not _is_admin_or_super(call.from_user.id, employee):
+        await call.answer("Ruxsat yo'q", show_alert=True)
+        return
+    br_id = int(call.data.split(":")[1])
+    await state.set_state(BranchEdit.name)
+    await state.update_data(branch_id=br_id)
+    await call.message.answer("✏️ Filialning yangi nomini yozing:")
+    await call.answer()
+
+
+@router.message(BranchEdit.name, F.text)
+async def branch_rename_save(message: Message, state: FSMContext, session: AsyncSession, employee: Employee | None):
+    name = " ".join(message.text.split()).strip()
+    if len(name) < 2 or len(name) > 60:
+        await message.answer("❌ Nom 2–60 belgidan iborat bo'lsin. Qaytadan yozing:")
+        return
+    data = await state.get_data()
+    br = await get_branch(session, data.get("branch_id"))
+    if not br:
+        await state.clear()
+        await message.answer("❌ Filial topilmadi.")
+        return
+    old = br.name
+    br.name = name
+    await session.commit()
+    await log_action(session, employee.id if employee else None, "rename_branch",
+                     {"branch_id": br.id, "old": old, "new": name})
+    await state.clear()
+    await message.answer(f"✅ Filial nomi o'zgartirildi:\n{old} → {name}")
+
+
+@router.callback_query(F.data == "brmng_list")
+async def branch_back_list(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
+    if not _is_admin_or_super(call.from_user.id, employee):
+        await call.answer("Ruxsat yo'q", show_alert=True)
+        return
+    branches = await _branches_for(session, employee)
+    try:
+        await call.message.edit_text(
+            "🏢 Filiallar — tahrirlash uchun tanlang:",
+            reply_markup=admin_kb.branches_kb_manage(branches),
+        )
+    except Exception:
+        await call.message.answer(
+            "🏢 Filiallar:", reply_markup=admin_kb.branches_kb_manage(branches)
         )
     await call.answer()
