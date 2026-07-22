@@ -1,4 +1,9 @@
-"""Admin/menejer tarafi: xodim tasdiqlash, so'rovlarga javob, hisobotlar."""
+"""Admin/menejer tarafi: xodim tasdiqlash, so'rovlarga javob, hisobotlar.
+
+Admin funksiyalari asosiy klaviaturada (reply keyboard) tugmalar sifatida
+chiqadi. Har bir amal ham reply-tugma (message), ham eski inline (callback)
+orqali ishlaydi — logika umumiy yordamchi funksiyalarda.
+"""
 from __future__ import annotations
 
 from aiogram import F, Router
@@ -21,7 +26,7 @@ from database.queries import (
     approve_employee,
     get_employee_by_id,
     get_request,
-    list_branches,
+    list_branch_employees,
     list_pending_requests,
     log_action,
     reject_employee,
@@ -29,6 +34,7 @@ from database.queries import (
 )
 from handlers.states import AdminReview
 from keyboards import admin_kb
+from locales import uz
 from services import excel_export
 from services.notifier import notify_employee
 from services.report_builder import today_branch_report
@@ -84,8 +90,7 @@ async def _resolve_and_notify(call, session, employee, req_id, approve: bool, co
         return
     status = RequestStatus.tasdiqlandi if approve else RequestStatus.rad_etildi
     await resolve_request(session, req, status, call.from_user.id, comment)
-    await log_action(session, employee.id, "resolve_request",
-                     {"req_id": req_id, "approve": approve})
+    await log_action(session, employee.id, "resolve_request", {"req_id": req_id, "approve": approve})
 
     emp = await get_employee_by_id(session, req.employee_id)
     admin_name = employee.full_name
@@ -178,41 +183,24 @@ async def reqc_no(call: CallbackQuery, state: FSMContext, session: AsyncSession,
     await call.answer()
 
 
-# ==================== ADMIN MENYU ====================
-@router.message(F.text == "🛠 Admin panel")
-async def admin_panel(message: Message, session: AsyncSession, employee: Employee | None):
-    if not _is_admin(employee):
-        return
-    pending = await list_pending_requests(session, employee.branch_id)
-    await message.answer("🛠 Admin panel", reply_markup=admin_kb.admin_menu(len(pending)))
-
-
-@router.callback_query(F.data == "adm:today")
-async def adm_today(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
-    if not _is_admin(employee):
-        await call.answer("Ruxsat yo'q", show_alert=True)
-        return
+# ==================== ADMIN AMALLARI (umumiy logika) ====================
+async def _do_today(msg: Message, session: AsyncSession, employee: Employee):
     branch = employee.branch
     if branch:
         text = await today_branch_report(session, branch, today_local())
-        await call.message.answer(text)
-    await call.answer()
+        await msg.answer(text)
+    else:
+        await msg.answer("ℹ️ Sizga filial biriktirilmagan.")
 
 
-@router.callback_query(F.data == "adm:pending")
-async def adm_pending(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
-    if not _is_admin(employee):
-        await call.answer("Ruxsat yo'q", show_alert=True)
-        return
+async def _do_pending(msg: Message, session: AsyncSession, employee: Employee):
     reqs = await list_pending_requests(session, employee.branch_id)
     if not reqs:
-        await call.message.answer("✅ Kutilayotgan so'rovlar yo'q.")
-        await call.answer()
+        await msg.answer("✅ Kutilayotgan so'rovlar yo'q.")
         return
     for req in reqs:
         emp = await get_employee_by_id(session, req.employee_id)
         head = "🕐 KECH QOLISH" if req.type == RequestType.kech_qolish else "🏖 DAM OLISH"
-        from locales import uz
         mapping = uz.LATE_REQUEST_REASONS if req.type == RequestType.kech_qolish else uz.VACATION_REASONS
         reason = uz.reason_label(mapping, req.reason_code, req.reason_text)
         tline = f"\n⏰ Kelish: {fmt_time(req.expected_time)}" if req.expected_time else ""
@@ -222,15 +210,10 @@ async def adm_pending(call: CallbackQuery, session: AsyncSession, employee: Empl
             f"📅 {fmt_date(req.target_date) if req.target_date else '—'}{tline}\n"
             f"📝 Sabab: {reason}"
         )
-        await call.message.answer(text, reply_markup=admin_kb.review_request_kb(req.id))
-    await call.answer()
+        await msg.answer(text, reply_markup=admin_kb.review_request_kb(req.id))
 
 
-@router.callback_query(F.data == "adm:outside")
-async def adm_outside(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
-    if not _is_admin(employee):
-        await call.answer("Ruxsat yo'q", show_alert=True)
-        return
+async def _do_outside(msg: Message, session: AsyncSession, employee: Employee):
     day = today_local()
     res = await session.execute(
         select(Break, Employee)
@@ -239,23 +222,16 @@ async def adm_outside(call: CallbackQuery, session: AsyncSession, employee: Empl
     )
     rows = res.all()
     if not rows:
-        await call.message.answer("✅ Hozir hamma joyida.")
-        await call.answer()
+        await msg.answer("✅ Hozir hamma joyida.")
         return
     lines = ["⚠️ Hozir tashqarida:\n"]
-    from locales import uz
     for br, emp in rows:
         reason = uz.reason_label(uz.BREAK_REASONS, br.reason_code, br.reason_text)
         lines.append(f"🚶 {emp.full_name} — {fmt_time(br.out_time)} dan ({reason})")
-    await call.message.answer("\n".join(lines))
-    await call.answer()
+    await msg.answer("\n".join(lines))
 
 
-@router.callback_query(F.data == "adm:late")
-async def adm_late(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
-    if not _is_admin(employee):
-        await call.answer("Ruxsat yo'q", show_alert=True)
-        return
+async def _do_late(msg: Message, session: AsyncSession, employee: Employee):
     day = today_local()
     res = await session.execute(
         select(Attendance, Employee)
@@ -264,47 +240,76 @@ async def adm_late(call: CallbackQuery, session: AsyncSession, employee: Employe
     )
     rows = res.all()
     if not rows:
-        await call.message.answer("✅ Bugun kech qolganlar yo'q.")
-        await call.answer()
+        await msg.answer("✅ Bugun kech qolganlar yo'q.")
         return
     lines = ["⏰ Bugun kech qolganlar:\n"]
     for att, emp in rows:
         lines.append(f"⚠️ {emp.full_name} — {fmt_time(att.check_in)} ({att.late_minutes}d kech)")
-    await call.message.answer("\n".join(lines))
-    await call.answer()
+    await msg.answer("\n".join(lines))
 
 
-@router.callback_query(F.data == "adm:employees")
-async def adm_employees(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
-    if not _is_admin(employee):
-        await call.answer("Ruxsat yo'q", show_alert=True)
-        return
-    from database.queries import list_branch_employees
+async def _do_employees(msg: Message, session: AsyncSession, employee: Employee):
     emps = await list_branch_employees(session, employee.branch_id, only_active=False)
     lines = [f"👥 Xodimlar ({len(emps)}):\n"]
     for e in emps:
         icon = {"faol": "✅", "kutilmoqda": "⏳", "faolsiz": "🚫"}.get(e.status.value, "•")
-        phone = e.phone or "—"
-        lines.append(f"{icon} {e.full_name} — {e.position or '—'} · {phone}")
-    await call.message.answer("\n".join(lines))
-    await call.answer()
+        lines.append(f"{icon} {e.full_name} — {e.position or '—'} · {e.phone or '—'}")
+    await msg.answer("\n".join(lines))
 
 
-@router.callback_query(F.data == "adm:excel")
-async def adm_excel(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
-    if not _is_admin(employee):
-        await call.answer("Ruxsat yo'q", show_alert=True)
-        return
-    await call.answer("Excel tayyorlanmoqda...")
+async def _do_excel(msg: Message, session: AsyncSession, employee: Employee):
+    await msg.answer("⏳ Excel tayyorlanmoqda...")
     day = today_local()
     data = await excel_export.build_month_excel(session, employee.branch_id, day.year, day.month)
     fname = f"davomat_{day.year}_{day.month:02d}.xlsx"
-    await call.message.answer_document(BufferedInputFile(data, filename=fname))
+    await msg.answer_document(BufferedInputFile(data, filename=fname))
 
 
-@router.callback_query(F.data.in_({"adm:videos", "adm:rating", "adm:bydate", "adm:settings"}))
-async def adm_stub(call: CallbackQuery, employee: Employee | None):
+# ==================== REPLY-TUGMA HANDLERLARI (asosiy klaviatura) ====================
+@router.message(F.text == "📊 Bugungi hisobot")
+async def btn_today(message: Message, session: AsyncSession, employee: Employee | None):
     if not _is_admin(employee):
-        await call.answer("Ruxsat yo'q", show_alert=True)
         return
-    await call.answer("Bu bo'lim keyingi versiyada.", show_alert=True)
+    await _do_today(message, session, employee)
+
+
+@router.message(F.text == "⏳ Kutilayotgan so'rovlar")
+async def btn_pending(message: Message, session: AsyncSession, employee: Employee | None):
+    if not _is_admin(employee):
+        return
+    await _do_pending(message, session, employee)
+
+
+@router.message(F.text == "⚠️ Hozir tashqarida")
+async def btn_outside(message: Message, session: AsyncSession, employee: Employee | None):
+    if not _is_admin(employee):
+        return
+    await _do_outside(message, session, employee)
+
+
+@router.message(F.text == "⏰ Bugun kech qolganlar")
+async def btn_late(message: Message, session: AsyncSession, employee: Employee | None):
+    if not _is_admin(employee):
+        return
+    await _do_late(message, session, employee)
+
+
+@router.message(F.text == "👥 Xodimlar")
+async def btn_employees(message: Message, session: AsyncSession, employee: Employee | None):
+    if not _is_admin(employee):
+        return
+    await _do_employees(message, session, employee)
+
+
+@router.message(F.text == "📥 Excel")
+async def btn_excel(message: Message, session: AsyncSession, employee: Employee | None):
+    if not _is_admin(employee):
+        return
+    await _do_excel(message, session, employee)
+
+
+# ==================== ESKI "ADMIN PANEL" (inline) — orqaga moslik ====================
+@router.message(F.text == "🛠 Admin panel")
+async def admin_panel(message: Message, session: AsyncSession, employee: Employee | None):
+    if not _is_admin(employee):
+        return

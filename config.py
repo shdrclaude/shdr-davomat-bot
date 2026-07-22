@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from zoneinfo import ZoneInfo
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,6 +18,13 @@ class Settings(BaseSettings):
     super_admins: str = ""
     log_chat_id: int | None = None
     tz_name: str = "Asia/Tashkent"
+
+    @field_validator("log_chat_id", mode="before")
+    @classmethod
+    def _empty_to_none(cls, v):
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return None
+        return v
 
     @property
     def async_database_url(self) -> str:

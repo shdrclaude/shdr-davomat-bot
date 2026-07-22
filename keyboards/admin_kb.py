@@ -21,10 +21,14 @@ def admin_menu(pending_count: int = 0) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def admin_menu_reply() -> "ReplyKeyboardBuilder":
+def admin_menu_reply():
+    """Admin uchun asosiy klaviatura — funksiyalar to'g'ridan-to'g'ri tugmalarda."""
     b = ReplyKeyboardBuilder()
-    b.row(KeyboardButton(text="🛠 Admin panel"))
-    b.row(KeyboardButton(text="📊 Hisobotim"), KeyboardButton(text="ℹ️ Yordam"))
+    b.row(KeyboardButton(text="📊 Bugungi hisobot"))
+    b.row(KeyboardButton(text="⏳ Kutilayotgan so'rovlar"), KeyboardButton(text="⚠️ Hozir tashqarida"))
+    b.row(KeyboardButton(text="⏰ Bugun kech qolganlar"), KeyboardButton(text="👥 Xodimlar"))
+    b.row(KeyboardButton(text="📥 Excel"), KeyboardButton(text="📊 Hisobotim"))
+    b.row(KeyboardButton(text="ℹ️ Yordam"))
     return b.as_markup(resize_keyboard=True)
 
 
@@ -53,11 +57,3 @@ def review_request_kb(req_id: int) -> InlineKeyboardMarkup:
 
 def comment_decision_kb(req_id: int) -> InlineKeyboardMarkup:
     """Izoh yozilgach — tasdiqlash yoki rad etish."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="✅ Izoh bilan tasdiqlash", callback_data=f"reqc_ok:{req_id}"),
-                InlineKeyboardButton(text="❌ Izoh bilan rad etish", callback_data=f"reqc_no:{req_id}"),
-            ]
-        ]
-    )
