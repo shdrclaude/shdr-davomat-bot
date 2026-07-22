@@ -92,6 +92,8 @@ class Employee(Base):
     )
     registered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     approved_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    work_start: Mapped[time | None] = mapped_column(Time, nullable=True)  # shaxsiy ish vaqti (yo'q bo'lsa filialniki)
+    work_end: Mapped[time | None] = mapped_column(Time, nullable=True)
 
     branch: Mapped["Branch"] = relationship(back_populates="employees")
 

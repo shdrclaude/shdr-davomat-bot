@@ -46,7 +46,7 @@ async def break_start(message: Message, state: FSMContext, session: AsyncSession
         await message.answer("ℹ️ Buning uchun avval ishni boshlashingiz kerak.")
         return
 
-    if is_work_time_over(employee.branch):
+    if is_work_time_over(employee):
         await message.answer(templates.BREAK_WORK_ENDED)
         return
 

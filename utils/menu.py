@@ -28,8 +28,11 @@ async def determine_menu_state(session: AsyncSession, emp: Employee, branch: Bra
     return "working"
 
 
-def is_work_time_over(branch: Branch | None) -> bool:
-    if not branch:
+def is_work_time_over(employee) -> bool:
+    """Xodimning (yoki filialining) ish vaqti tugaganmi."""
+    branch = getattr(employee, "branch", None)
+    end_t = getattr(employee, "work_end", None) or (branch.work_end if branch else None)
+    if not end_t:
         return False
-    end_dt = combine_local(today_local(), branch.work_end)
+    end_dt = combine_local(today_local(), end_t)
     return now_local() > end_dt

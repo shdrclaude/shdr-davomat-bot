@@ -72,8 +72,9 @@ async def keldim_video(message: Message, state: FSMContext, session: AsyncSessio
 
     is_late = False
     late_minutes = 0
-    if branch:
-        start_dt = combine_local(day, branch.work_start)
+    start_t = employee.work_start or (branch.work_start if branch else None)
+    if start_t:
+        start_dt = combine_local(day, start_t)
         if now > start_dt:
             is_late = True
             late_minutes = minutes_between(start_dt, now)

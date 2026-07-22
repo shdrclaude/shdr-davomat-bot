@@ -25,6 +25,8 @@ from database.models import (
 )
 from database.queries import (
     approve_employee,
+    count_branch_employees,
+    delete_branch,
     get_employee_by_id,
     get_branch,
     get_request,
@@ -36,7 +38,7 @@ from database.queries import (
     reject_employee,
     resolve_request,
 )
-from handlers.states import AdminReview, BranchEdit
+from handlers.states import AdminReview, BranchEdit, EmpWork
 from keyboards import admin_kb
 from locales import uz
 from services import excel_export
@@ -460,14 +462,21 @@ def _emp_card_text(emp: Employee) -> str:
     stat_uz = {"faol": "✅ Faol", "kutilmoqda": "⏳ Kutilmoqda", "faolsiz": "🚫 Bloklangan"}.get(
         emp.status.value, emp.status.value
     )
+    if emp.work_start and emp.work_end:
+        wt = f"{fmt_time(emp.work_start)} — {fmt_time(emp.work_end)} (shaxsiy)"
+    elif emp.branch and emp.branch.work_start:
+        wt = f"{fmt_time(emp.branch.work_start)} — {fmt_time(emp.branch.work_end)} (filial)"
+    else:
+        wt = "—"
     return (
         f"👤 {emp.full_name}\n"
         f"📞 {emp.phone or '—'}\n"
         f"💼 {emp.position or '—'}\n"
         f"🏢 {emp.branch.name if emp.branch else '—'}\n"
         f"🔑 Rol: {role_uz}\n"
-        f"📌 Holat: {stat_uz}\n\n"
-        f"Rol yoki holatni o'zgartirish uchun tugmani bosing:"
+        f"📌 Holat: {stat_uz}\n"
+        f"🕐 Ish vaqti: {wt}\n\n"
+        f"Rol, holat yoki ish vaqtini o'zgartirish uchun tugmani bosing:"
     )
 
 
@@ -648,3 +657,106 @@ async def branch_back_list(call: CallbackQuery, session: AsyncSession, employee:
             "🏢 Filiallar:", reply_markup=admin_kb.branches_kb_manage(branches)
         )
     await call.answer()
+
+
+# ==================== XODIM ISH VAQTI ====================
+@router.callback_query(F.data.startswith("empwt:"))
+async def emp_worktime_start(call: CallbackQuery, state: FSMContext, employee: Employee | None):
+    if not _is_admin_or_super(call.from_user.id, employee):
+        await call.answer("Ruxsat yo'q", show_alert=True)
+        return
+    await state.set_state(EmpWork.times)
+    await state.update_data(emp_id=int(call.data.split(":")[1]))
+    await call.message.answer(
+        "🕐 Xodimning shaxsiy ish vaqtini yozing.\n"
+        "Masalan: <b>09:00 18:00</b>\n\n"
+        "Filial vaqtiga qaytarish uchun: <b>0</b>",
+        parse_mode="HTML",
+    )
+    await call.answer()
+
+
+@router.message(EmpWork.times, F.text)
+async def emp_worktime_save(message: Message, state: FSMContext, session: AsyncSession, employee: Employee | None):
+    txt = message.text.strip()
+    data = await state.get_data()
+    emp = await get_employee_by_id(session, data.get("emp_id"))
+    if not emp:
+        await state.clear()
+        await message.answer("❌ Xodim topilmadi.")
+        return
+    if txt == "0":
+        emp.work_start = None
+        emp.work_end = None
+        await session.commit()
+        await state.clear()
+        await message.answer(f"✅ {emp.full_name} — ish vaqti filial vaqtiga qaytarildi.")
+        return
+    try:
+        a, b = txt.split()
+        sh, sm = map(int, a.split(":"))
+        eh, em = map(int, b.split(":"))
+        from datetime import time as _t
+        ws = _t(sh, sm)
+        we = _t(eh, em)
+    except (ValueError, TypeError):
+        await message.answer("❌ Noto'g'ri format. Masalan: 09:00 18:00 (yoki 0)")
+        return
+    emp.work_start = ws
+    emp.work_end = we
+    await session.commit()
+    await log_action(session, employee.id if employee else None, "set_worktime", {"emp_id": emp.id})
+    await state.clear()
+    await message.answer(f"✅ {emp.full_name} — ish vaqti: {fmt_time(ws)} — {fmt_time(we)}")
+
+
+# ==================== FILIALNI O'CHIRISH ====================
+@router.callback_query(F.data.startswith("brdel:"))
+async def branch_delete_confirm(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
+    if not _is_admin_or_super(call.from_user.id, employee):
+        await call.answer("Ruxsat yo'q", show_alert=True)
+        return
+    br_id = int(call.data.split(":")[1])
+    br = await get_branch(session, br_id)
+    if not br:
+        await call.answer("Topilmadi", show_alert=True)
+        return
+    cnt = await count_branch_employees(session, br_id)
+    if cnt > 0:
+        await call.answer()
+        await call.message.answer(
+            f"⛔ '{br.name}' filialida {cnt} ta xodim bor.\n"
+            "Avval ularni boshqa filialga o'tkazing yoki o'chiring."
+        )
+        return
+    try:
+        await call.message.edit_text(
+            f"🗑 '{br.name}' filialini o'chirasizmi? Bu amalni qaytarib bo'lmaydi.",
+            reply_markup=admin_kb.branch_delete_confirm_kb(br_id),
+        )
+    except Exception:
+        await call.message.answer(
+            f"🗑 '{br.name}' filialini o'chirasizmi?",
+            reply_markup=admin_kb.branch_delete_confirm_kb(br_id),
+        )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("brdelyes:"))
+async def branch_delete_yes(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
+    if not _is_admin_or_super(call.from_user.id, employee):
+        await call.answer("Ruxsat yo'q", show_alert=True)
+        return
+    br_id = int(call.data.split(":")[1])
+    if await count_branch_employees(session, br_id) > 0:
+        await call.answer("Filialda xodimlar bor", show_alert=True)
+        return
+    br = await get_branch(session, br_id)
+    name = br.name if br else "—"
+    await delete_branch(session, br_id)
+    await log_action(session, employee.id if employee else None, "delete_branch", {"branch_id": br_id, "name": name})
+    try:
+        await call.message.edit_text(f"✅ '{name}' filiali o'chirildi.")
+    except Exception:
+        await call.message.answer(f"✅ '{name}' filiali o'chirildi.")
+    await call.answer("O'chirildi")

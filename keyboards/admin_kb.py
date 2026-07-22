@@ -98,6 +98,7 @@ def employee_card_kb(emp) -> InlineKeyboardMarkup:
         rows.append([InlineKeyboardButton(text="🚫 Bloklash", callback_data=f"empstat:{emp.id}:faolsiz")])
     else:
         rows.append([InlineKeyboardButton(text="✅ Faollashtirish", callback_data=f"empstat:{emp.id}:faol")])
+    rows.append([InlineKeyboardButton(text="🕐 Ish vaqtini belgilash", callback_data=f"empwt:{emp.id}")])
     rows.append([InlineKeyboardButton(text="◀️ Ro'yxatga qaytish", callback_data="empmng_list")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -116,6 +117,18 @@ def branch_card_kb(branch) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="✏️ Nomini o'zgartirish", callback_data=f"brname:{branch.id}")],
+            [InlineKeyboardButton(text="🗑 Filialni o'chirish", callback_data=f"brdel:{branch.id}")],
             [InlineKeyboardButton(text="◀️ Ro'yxatga qaytish", callback_data="brmng_list")],
+        ]
+    )
+
+
+def branch_delete_confirm_kb(branch_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Ha, o'chirish", callback_data=f"brdelyes:{branch_id}"),
+                InlineKeyboardButton(text="❌ Yo'q", callback_data=f"brmng:{branch_id}"),
+            ]
         ]
     )

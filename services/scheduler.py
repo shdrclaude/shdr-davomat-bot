@@ -41,7 +41,7 @@ BREAK_ADMIN_AFTER = 30    # daqiqa — adminga xabar
 def setup_scheduler(bot) -> AsyncIOScheduler:
     sched = AsyncIOScheduler(timezone=settings.tz_name)
 
-    sched.add_job(morning_greeting, CronTrigger(hour=7, minute=45), args=[bot], id="morning")
+    sched.add_job(remind_before_work, IntervalTrigger(minutes=5), args=[bot], id="remind_before")
     sched.add_job(absentees_to_admin, CronTrigger(hour=8, minute=30), args=[bot], id="absentees")
     sched.add_job(remind_not_checked, CronTrigger(hour=9, minute=0), args=[bot], id="remind_checkin")
     sched.add_job(check_overdue_breaks, IntervalTrigger(minutes=15), args=[bot], id="breaks")
@@ -58,17 +58,50 @@ async def _active_branches_today(session):
     return [b for b in branches if is_workday(day, b.work_days)]
 
 
-async def morning_greeting(bot):
+_reminded_before: dict = {}  # {sana: set(emp_id)} — takror eslatmani oldini oladi
+
+
+async def remind_before_work(bot):
+    """Har bir xodimga ish vaqtidan ~30 daqiqa oldin eslatma."""
     async with async_session_maker() as session:
         day = today_local()
-        for branch in await _active_branches_today(session):
-            res = await session.execute(
-                select(Employee).where(
-                    and_(Employee.branch_id == branch.id, Employee.status == EmployeeStatus.faol)
+        key = day.isoformat()
+        done = _reminded_before.setdefault(key, set())
+        for k in list(_reminded_before.keys()):  # eski kunlarni tozalash
+            if k != key:
+                _reminded_before.pop(k, None)
+        now = now_local()
+        branches = {b.id: b for b in await list_branches(session)}
+        res = await session.execute(
+            select(Employee).where(Employee.status == EmployeeStatus.faol)
+        )
+        for emp in res.scalars().all():
+            if emp.id in done:
+                continue
+            branch = branches.get(emp.branch_id)
+            if not branch or not is_workday(day, branch.work_days):
+                continue
+            start_t = emp.work_start or branch.work_start
+            if not start_t:
+                continue
+            start_dt = combine_local(day, start_t)
+            mins = int((start_dt - now).total_seconds() // 60)
+            if 25 <= mins <= 30:
+                att = await session.execute(
+                    select(Attendance).where(
+                        and_(Attendance.employee_id == emp.id, Attendance.date == day)
+                    )
                 )
-            )
-            for emp in res.scalars().all():
-                await safe_send(bot, emp.telegram_id, "🌅 Xayrli tong! 15 daqiqadan keyin ish boshlanadi.")
+                att = att.scalar_one_or_none()
+                if att and att.check_in:
+                    done.add(emp.id)
+                    continue
+                await safe_send(
+                    bot, emp.telegram_id,
+                    f"⏰ 30 daqiqadan keyin ish boshlanadi ({fmt_time(start_t)}).\n"
+                    "Kelganingizda \"✅ Keldim\" tugmasini bosing.",
+                )
+                done.add(emp.id)
 
 
 async def absentees_to_admin(bot):

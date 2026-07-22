@@ -413,3 +413,19 @@ async def list_all_employees(session: AsyncSession, only_active: bool = False) -
     q = q.order_by(Employee.branch_id, Employee.full_name)
     res = await session.execute(q)
     return list(res.scalars().all())
+
+
+async def count_branch_employees(session: AsyncSession, branch_id: int) -> int:
+    res = await session.execute(
+        select(func.count(Employee.id)).where(Employee.branch_id == branch_id)
+    )
+    return res.scalar_one() or 0
+
+
+async def delete_branch(session: AsyncSession, branch_id: int) -> bool:
+    br = await get_branch(session, branch_id)
+    if not br:
+        return False
+    await session.delete(br)
+    await session.commit()
+    return True

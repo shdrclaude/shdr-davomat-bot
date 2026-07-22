@@ -55,3 +55,7 @@ class AdminReview(StatesGroup):
 
 class BranchEdit(StatesGroup):
     name = State()
+
+
+class EmpWork(StatesGroup):
+    times = State()
