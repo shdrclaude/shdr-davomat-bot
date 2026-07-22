@@ -250,11 +250,13 @@ async def _do_late(msg: Message, session: AsyncSession, employee: Employee):
 
 async def _do_employees(msg: Message, session: AsyncSession, employee: Employee):
     emps = await list_branch_employees(session, employee.branch_id, only_active=False)
-    lines = [f"👥 Xodimlar ({len(emps)}):\n"]
-    for e in emps:
-        icon = {"faol": "✅", "kutilmoqda": "⏳", "faolsiz": "🚫"}.get(e.status.value, "•")
-        lines.append(f"{icon} {e.full_name} — {e.position or '—'} · {e.phone or '—'}")
-    await msg.answer("\n".join(lines))
+    if not emps:
+        await msg.answer("👥 Xodimlar yo'q.")
+        return
+    await msg.answer(
+        f"👥 Xodimlar ({len(emps)}):\nTahrirlash uchun xodimni tanlang:",
+        reply_markup=admin_kb.employees_list_kb(emps),
+    )
 
 
 async def _do_excel(msg: Message, session: AsyncSession, employee: Employee):
@@ -424,3 +426,101 @@ async def adm_stub(call: CallbackQuery, employee: Employee | None):
         await call.answer("Ruxsat yo'q", show_alert=True)
         return
     await call.answer("Bu bo'lim keyingi versiyada.", show_alert=True)
+
+
+# ==================== XODIMNI TAHRIRLASH (rol / holat) ====================
+def _emp_card_text(emp: Employee) -> str:
+    role_uz = {"admin": "👑 Admin", "menejer": "🧑‍💼 Menejer", "xodim": "👷 Xodim"}.get(
+        emp.role.value, emp.role.value
+    )
+    stat_uz = {"faol": "✅ Faol", "kutilmoqda": "⏳ Kutilmoqda", "faolsiz": "🚫 Bloklangan"}.get(
+        emp.status.value, emp.status.value
+    )
+    return (
+        f"👤 {emp.full_name}\n"
+        f"📞 {emp.phone or '—'}\n"
+        f"💼 {emp.position or '—'}\n"
+        f"🏢 {emp.branch.name if emp.branch else '—'}\n"
+        f"🔑 Rol: {role_uz}\n"
+        f"📌 Holat: {stat_uz}\n\n"
+        f"Rol yoki holatni o'zgartirish uchun tugmani bosing:"
+    )
+
+
+async def _show_emp_card(call: CallbackQuery, session: AsyncSession, emp_id: int):
+    emp = await get_employee_by_id(session, emp_id)
+    if not emp:
+        await call.answer("Topilmadi", show_alert=True)
+        return
+    try:
+        await call.message.edit_text(_emp_card_text(emp), reply_markup=admin_kb.employee_card_kb(emp))
+    except Exception:
+        await call.message.answer(_emp_card_text(emp), reply_markup=admin_kb.employee_card_kb(emp))
+
+
+@router.callback_query(F.data.startswith("empmng:"))
+async def emp_manage(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
+    if not _is_admin(employee):
+        await call.answer("Ruxsat yo'q", show_alert=True)
+        return
+    await _show_emp_card(call, session, int(call.data.split(":")[1]))
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("emprole:"))
+async def emp_set_role(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
+    if not _is_admin(employee):
+        await call.answer("Ruxsat yo'q", show_alert=True)
+        return
+    _, sid, role = call.data.split(":")
+    emp = await get_employee_by_id(session, int(sid))
+    if not emp:
+        await call.answer("Topilmadi", show_alert=True)
+        return
+    emp.role = Role(role)
+    if emp.status == EmployeeStatus.kutilmoqda:
+        emp.status = EmployeeStatus.faol  # rol berilsa avtomatik faollashadi
+    await session.commit()
+    await log_action(session, employee.id, "set_role", {"emp_id": emp.id, "role": role})
+    await call.answer(f"Rol o'zgartirildi: {role}")
+    await _show_emp_card(call, session, emp.id)
+
+
+@router.callback_query(F.data.startswith("empstat:"))
+async def emp_set_status(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
+    if not _is_admin(employee):
+        await call.answer("Ruxsat yo'q", show_alert=True)
+        return
+    _, sid, stat = call.data.split(":")
+    emp = await get_employee_by_id(session, int(sid))
+    if not emp:
+        await call.answer("Topilmadi", show_alert=True)
+        return
+    emp.status = EmployeeStatus(stat)
+    await session.commit()
+    await log_action(session, employee.id, "set_status", {"emp_id": emp.id, "status": stat})
+    if stat == "faol":
+        await notify_employee(call.bot, emp, templates.APPROVED)
+    else:
+        await notify_employee(call.bot, emp, templates.REJECTED_EMP)
+    await call.answer("Holat o'zgartirildi")
+    await _show_emp_card(call, session, emp.id)
+
+
+@router.callback_query(F.data == "empmng_list")
+async def emp_back_list(call: CallbackQuery, session: AsyncSession, employee: Employee | None):
+    if not _is_admin(employee):
+        await call.answer("Ruxsat yo'q", show_alert=True)
+        return
+    emps = await list_branch_employees(session, employee.branch_id, only_active=False)
+    try:
+        await call.message.edit_text(
+            f"👥 Xodimlar ({len(emps)}):\nTahrirlash uchun xodimni tanlang:",
+            reply_markup=admin_kb.employees_list_kb(emps),
+        )
+    except Exception:
+        await call.message.answer(
+            f"👥 Xodimlar ({len(emps)}):",
+            reply_markup=admin_kb.employees_list_kb(emps),
+        )
+    await call.answer()

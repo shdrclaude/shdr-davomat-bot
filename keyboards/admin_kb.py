@@ -64,3 +64,35 @@ def comment_decision_kb(req_id: int) -> InlineKeyboardMarkup:
             ]
         ]
     )
+
+
+def employees_list_kb(employees) -> InlineKeyboardMarkup:
+    """Xodimlar ro'yxati — har biri tahrirlash uchun tugma."""
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    b = InlineKeyboardBuilder()
+    for e in employees:
+        icon = {"admin": "👑", "menejer": "🧑‍💼", "xodim": "👷"}.get(e.role.value, "·")
+        st = {"faol": "", "kutilmoqda": " ⏳", "faolsiz": " 🚫"}.get(e.status.value, "")
+        b.button(text=f"{icon} {e.full_name}{st}", callback_data=f"empmng:{e.id}")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def employee_card_kb(emp) -> InlineKeyboardMarkup:
+    """Bitta xodim kartasi — rol va holat tugmalari."""
+    rows: list[list[InlineKeyboardButton]] = []
+    role_row: list[InlineKeyboardButton] = []
+    if emp.role.value != "admin":
+        role_row.append(InlineKeyboardButton(text="👑 Admin", callback_data=f"emprole:{emp.id}:admin"))
+    if emp.role.value != "menejer":
+        role_row.append(InlineKeyboardButton(text="🧑‍💼 Menejer", callback_data=f"emprole:{emp.id}:menejer"))
+    if emp.role.value != "xodim":
+        role_row.append(InlineKeyboardButton(text="👷 Xodim", callback_data=f"emprole:{emp.id}:xodim"))
+    for i in range(0, len(role_row), 2):
+        rows.append(role_row[i:i + 2])
+    if emp.status.value == "faol":
+        rows.append([InlineKeyboardButton(text="🚫 Bloklash", callback_data=f"empstat:{emp.id}:faolsiz")])
+    else:
+        rows.append([InlineKeyboardButton(text="✅ Faollashtirish", callback_data=f"empstat:{emp.id}:faol")])
+    rows.append([InlineKeyboardButton(text="◀️ Ro'yxatga qaytish", callback_data="empmng_list")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
